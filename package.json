@@ -13,6 +13,7 @@
   "dependencies": {
     "@upstash/redis": "^1.35.3",
     "@vercel/kv": "^3.0.0",
-    "geoip-lite": "^1.4.10"
+    "geoip-lite": "^1.4.10",
+    "sharp": "^0.34.3"
   }
 }

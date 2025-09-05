@@ -1,7 +1,6 @@
-// VERSÃO FINAL CORRIGIDA E UNIFICADA
 import { kv } from '@vercel/kv';
-import geoip from 'geoip-lite';
 import quotes from '../quotes.json';
+import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -10,7 +9,18 @@ const imageUrls = {
     fortune_template: 'https://i.ibb.co/hRWtBZbS/Zoltar-Filipeta.png',
     locked: 'https://i.ibb.co/RG8sdVw2/Zoltar-5.png'
 };
-// --------------------
+
+// --- CACHE ---
+let cachedFontDataUri = null;
+async function getFontDataUri() {
+    if (cachedFontDataUri) return cachedFontDataUri;
+    
+    const fontPath = path.join(process.cwd(), 'SpecialElite-Regular.ttf');
+    const fontBuffer = await fs.readFile(fontPath);
+    const fontBase64 = fontBuffer.toString('base64');
+    cachedFontDataUri = `data:font/ttf;base64,${fontBase64}`;
+    return cachedFontDataUri;
+}
 
 // --- HANDLER ---
 export default async function handler(request, response) {
@@ -24,8 +34,7 @@ export default async function handler(request, response) {
         if (url.searchParams.get('reset') === 'true') {
             await kv.del(ip);
 
-            // Coleta de dados para o relatório
-            const geo = geoip.lookup(ip);
+            const country = request.headers['x-vercel-ip-country'] || 'N/A';
             const city = request.headers['x-vercel-ip-city'] || 'N/A';
             const region = request.headers['x-vercel-ip-country-region'] || 'N/A';
             const userAgent = request.headers['user-agent'] || 'N/A';
@@ -33,11 +42,10 @@ export default async function handler(request, response) {
             const hour = new Date().getUTCHours() - 3;
             const activeTags = new Set();
             if (hour >= 18 || hour < 6) activeTags.add('noite'); else activeTags.add('dia');
-            if (geo && geo.country) activeTags.add(geo.country);
+            if (country) activeTags.add(country);
             
-            // Lógica de sorteio de "Urna" para simulação
             const baseWeight = 1;
-            const tagBonus = 2; 
+            const tagBonus = 2;
             const quotesWithWeights = quotes.map(quote => {
                 let score = baseWeight;
                 quote.tags.forEach(tag => {
@@ -56,7 +64,6 @@ export default async function handler(request, response) {
             }
             const simulatedQuote = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
             
-            // Montagem do HTML de debug
             response.setHeader('Content-Type', 'text/html');
             const reportHtml = `
                 <!DOCTYPE html>
@@ -64,30 +71,32 @@ export default async function handler(request, response) {
                 <head>
                     <meta charset="UTF-8"><title>Zoltar - Debug Reset</title>
                     <style>
-                        body { font-family: monospace; background-color: #121212; color: #e0e0e0; padding: 20px; }
-                        h1, h2 { color: #f0e68c; border-bottom: 1px solid #f0e68c; }
-                        pre { background-color: #2c2c2c; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; }
-                        strong { color: #87ceeb; }
+                        body { font-family: monospace; background-color: #000000; color: #f0f0f0; padding: 20px; }
+                        h1, h2 { color: #00aaff; border-bottom: 1px solid #00aaff; padding-bottom: 5px; }
+                        p, li { font-size: 16px; line-height: 1.6; }
+                        hr { border-color: #333; }
+                        pre { background-color: #1a1a1a; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #00aaff; }
+                        strong { color: #00aaff; } .value { color: #f0f0f0; }
                     </style>
                 </head>
                 <body>
                     <h1>Relatório de Depuração (Algoritmo de Urna)</h1>
-                    <p>Seu IP (<strong>${ip}</strong>) foi resetado.</p>
-                    <h2>1. Dados do Usuário</h2>
-                    <pre>
-<strong>IP:</strong> ${ip}
-<strong>País (geoip-lite):</strong> ${geo ? geo.country : 'N/A'}
-<strong>Cidade (Vercel):</strong> ${city}
-<strong>Região (Vercel):</strong> ${region}
-<strong>Hora (UTC-3):</strong> ${hour}
-                    </pre>
+                    <p>Seu IP (<span class="value">${ip}</span>) foi resetado.</p> <hr>
+                    <h2>1. Dados "Pescados" do Usuário</h2>
+                    <pre><strong>IP:</strong> <span class="value">${ip}</span>
+<strong>País:</strong> <span class="value">${country}</span>
+<strong>Cidade:</strong> <span class="value">${city}</span>
+<strong>Estado/Região:</strong> <span class="value">${region}</span>
+<strong>Idioma:</strong> <span class="value">${language}</span>
+<strong>User-Agent:</strong> <span class="value">${userAgent}</span></pre>
                     <h2>2. Lógica de Pesos</h2>
                     <p><strong>Tags de Contexto Ativas:</strong> [${Array.from(activeTags).join(', ')}]</p>
-                    <p><strong>Pesos Calculados:</strong></p>
+                    <p><strong>Regra:</strong> Peso base de ${baseWeight} + Bônus de ${tagBonus} por tag correspondente.</p>
+                    <p><strong>Pesos Calculados para Cada Frase:</strong></p>
                     <pre>${JSON.stringify(quotesWithWeights, null, 2)}</pre>
                     <h2>3. Simulação da Randomização</h2>
                     <p>A "urna" de sorteio contém <strong>${pool.length}</strong> "papeizinhos" no total.</p>
-                    <p><strong>Frase que seria sorteada:</strong></p>
+                    <p><strong>Frase que seria sorteada nesta simulação:</strong></p>
                     <pre>${simulatedQuote ? JSON.stringify(simulatedQuote, null, 2) : 'Nenhuma frase encontrada.'}</pre>
                 </body>
                 </html>
@@ -98,89 +107,101 @@ export default async function handler(request, response) {
         // --- LOCK ---
         const lastVisitTimestamp = await kv.get(ip);
         if (lastVisitTimestamp && lastVisitTimestamp > twentyFourHoursAgo) {
-            response.setHeader('Location', imageUrls.locked);
-            return response.status(307).send('Redirecting to locked image');
+            const lockedImageResponse = await fetch(imageUrls.locked);
+            const lockedImageBuffer = await lockedImageResponse.arrayBuffer();
+            response.setHeader('Content-Type', 'image/png');
+            response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            return response.status(200).end(Buffer.from(lockedImageBuffer));
         }
 
         // --- SORTEIO ---
         const activeTags = new Set();
-        const geo = geoip.lookup(ip);
+        const country = request.headers['x-vercel-ip-country'] || null;
         const hour = new Date().getUTCHours() - 3;
         if (hour >= 18 || hour < 6) activeTags.add('noite'); else activeTags.add('dia');
-        if (geo && geo.country) activeTags.add(geo.country);
+        if (country) activeTags.add(country);
         
-        const baseWeight = 1;
-        const tagBonus = 2; 
         const pool = [];
         quotes.forEach(quote => {
-            let score = baseWeight;
-            quote.tags.forEach(tag => {
-                if (activeTags.has(tag)) {
-                    score += tagBonus;
-                }
-            });
-            for (let i = 0; i < score; i++) {
-                pool.push(quote);
+            let score = 1;
+            if (quote.tags && Array.isArray(quote.tags)) {
+                quote.tags.forEach(tag => { if (activeTags.has(tag)) { score += 2; } });
             }
+            for (let i = 0; i < score; i++) { pool.push(quote); }
         });
-        const finalQuote = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : quotes[Math.floor(Math.random() * quotes.length)];
 
-        if (!finalQuote) { throw new Error("Não foi possível sortear uma frase."); }
+        let finalQuote = pool.length > 0
+            ? pool[Math.floor(Math.random() * pool.length)]
+            : quotes[Math.floor(Math.random() * quotes.length)];
+
+        if (!finalQuote || !finalQuote.quote || !finalQuote.source) {
+            finalQuote = quotes[0];
+        }
 
         // --- RENDERIZACAO ---
-        const fontPath = path.join(process.cwd(), 'SpecialElite-Regular.ttf');
-        const fontBuffer = await fs.readFile(fontPath);
-        const fontBase64 = fontBuffer.toString('base64');
-        const fontDataUri = `data:font/ttf;base64,${fontBase64}`;
-
+        const fontDataUri = await getFontDataUri();
+        const baseImageResponse = await fetch(imageUrls.fortune_template);
+        const baseImageBuffer = await baseImageResponse.arrayBuffer();
+        
         const maxCharsPerLine = 22;
         let line = '';
         let formattedText = '';
-        for (const word of finalQuote.text.split(' ')) {
+        for (const word of finalQuote.quote.split(' ')) {
             if ((line + word).length > maxCharsPerLine) {
-                formattedText += `<tspan x="225" dy="1.2em">${line.trim()}</tspan>`;
+                formattedText += `<tspan x="50%" dy="1.2em">${line.trim()}</tspan>`;
                 line = '';
             }
             line += `${word} `;
         }
-        formattedText += `<tspan x="225" dy="1.2em">${line.trim()}</tspan>`;
-        formattedText += `<tspan x="225" dy="1.8em" class="author">- ${finalQuote.author}</tspan>`;
-
-        const finalSvg = `
-            <svg width="600" height="450" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+        formattedText += `<tspan x="50%" dy="1.2em">${line.trim()}</tspan>`;
+        formattedText += `<tspan x="50%" dy="1.8em" class="author">- ${finalQuote.source}</tspan>`;
+        
+        const textSvg = `
+            <svg width="450" height="250">
                 <style>
                     @font-face {
                         font-family: 'ZoltarFont';
                         src: url(${fontDataUri});
                     }
-                    .text-block {
-                        font-family: 'ZoltarFont', monospace;
-                        font-size: 28px;
-                        fill: #2c2c2c;
-                        text-anchor: middle;
+                    text { 
+                        font-size: 34px; 
+                        font-family: 'ZoltarFont', monospace; 
+                        fill: #2c2c2c; 
+                        text-anchor: middle; 
                     }
-                    .author {
-                        font-size: 22px;
-                        font-style: italic;
-                    }
+                    .author { font-size: 26px; font-style: italic; }
                 </style>
-                <image href="${imageUrls.fortune_template}" x="0" y="0" width="600" height="450" />
-                <text x="0" y="0" transform="translate(150 215) rotate(11)" class="text-block">
-                    ${formattedText}
-                </text>
+                <text x="50%" y="40%">${formattedText}</text>
             </svg>
         `;
 
-        // --- RESPOSTA ---
+        const rotatedTextBuffer = await sharp(Buffer.from(textSvg))
+            .rotate(12, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+            .toBuffer();
+            
+        const finalImageBuffer = await sharp(baseImageBuffer)
+            .composite([{ 
+                input: rotatedTextBuffer,
+                top: 375,
+                left: 215
+            }])
+            .png()
+            .toBuffer();
+        
+        // --- REGISTRO ---
         await kv.set(ip, Date.now());
-        response.setHeader('Content-Type', 'image/svg+xml');
+
+        // --- RESPOSTA ---
+        response.setHeader('Content-Type', 'image/png');
         response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        return response.status(200).send(finalSvg);
+        return response.status(200).end(finalImageBuffer);
 
     } catch (error) {
         // --- ERRO ---
         console.error("ERRO DETALHADO:", error);
-        response.setHeader('Location', imageUrls.locked);
-        return response.status(307).send('Redirecting to locked image on error');
+        const lockedImageResponse = await fetch(imageUrls.locked);
+        const lockedImageBuffer = await lockedImageResponse.arrayBuffer();
+        response.setHeader('Content-Type', 'image/png');
+        return response.status(500).end(Buffer.from(lockedImageBuffer));
     }
 }
