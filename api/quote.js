@@ -1,5 +1,6 @@
+// VERSÃO COM ESTRUTURA DE FICHEIROS CORRIGIDA
 import { kv } from '@vercel/kv';
-import quotes from '../quotes.json';
+import quotes from './quotes.json'; // MUDANÇA: Caminho direto para o ficheiro local
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
@@ -15,7 +16,8 @@ let cachedFontDataUri = null;
 async function getFontDataUri() {
     if (cachedFontDataUri) return cachedFontDataUri;
     
-    const fontPath = path.join(process.cwd(), 'SpecialElite-Regular.ttf');
+    // MUDANÇA: Usa __dirname para um caminho absoluto e seguro no servidor
+    const fontPath = path.join(__dirname, 'SpecialElite-Regular.ttf');
     const fontBuffer = await fs.readFile(fontPath);
     const fontBase64 = fontBuffer.toString('base64');
     cachedFontDataUri = `data:font/ttf;base64,${fontBase64}`;
@@ -33,25 +35,18 @@ export default async function handler(request, response) {
         // --- DEBUG ---
         if (url.searchParams.get('reset') === 'true') {
             await kv.del(ip);
-
             const country = request.headers['x-vercel-ip-country'] || 'N/A';
             const city = request.headers['x-vercel-ip-city'] || 'N/A';
             const region = request.headers['x-vercel-ip-country-region'] || 'N/A';
-            const userAgent = request.headers['user-agent'] || 'N/A';
-            const language = request.headers['accept-language'] || 'N/A';
             const hour = new Date().getUTCHours() - 3;
             const activeTags = new Set();
             if (hour >= 18 || hour < 6) activeTags.add('noite'); else activeTags.add('dia');
             if (country) activeTags.add(country);
             
-            const baseWeight = 1;
-            const tagBonus = 2;
             const quotesWithWeights = quotes.map(quote => {
-                let score = baseWeight;
+                let score = 1;
                 quote.tags.forEach(tag => {
-                    if (activeTags.has(tag)) {
-                        score += tagBonus;
-                    }
+                    if (activeTags.has(tag)) { score += 2; }
                 });
                 return { ...quote, score };
             });
@@ -73,31 +68,19 @@ export default async function handler(request, response) {
                     <style>
                         body { font-family: monospace; background-color: #000000; color: #f0f0f0; padding: 20px; }
                         h1, h2 { color: #00aaff; border-bottom: 1px solid #00aaff; padding-bottom: 5px; }
-                        p, li { font-size: 16px; line-height: 1.6; }
-                        hr { border-color: #333; }
                         pre { background-color: #1a1a1a; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #00aaff; }
                         strong { color: #00aaff; } .value { color: #f0f0f0; }
                     </style>
                 </head>
                 <body>
-                    <h1>Relatório de Depuração (Algoritmo de Urna)</h1>
-                    <p>Seu IP (<span class="value">${ip}</span>) foi resetado.</p> <hr>
-                    <h2>1. Dados "Pescados" do Usuário</h2>
-                    <pre><strong>IP:</strong> <span class="value">${ip}</span>
-<strong>País:</strong> <span class="value">${country}</span>
-<strong>Cidade:</strong> <span class="value">${city}</span>
-<strong>Estado/Região:</strong> <span class="value">${region}</span>
-<strong>Idioma:</strong> <span class="value">${language}</span>
-<strong>User-Agent:</strong> <span class="value">${userAgent}</span></pre>
-                    <h2>2. Lógica de Pesos</h2>
-                    <p><strong>Tags de Contexto Ativas:</strong> [${Array.from(activeTags).join(', ')}]</p>
-                    <p><strong>Regra:</strong> Peso base de ${baseWeight} + Bônus de ${tagBonus} por tag correspondente.</p>
-                    <p><strong>Pesos Calculados para Cada Frase:</strong></p>
+                    <h1>Relatório de Depuração</h1>
+                    <p>IP (<span class="value">${ip}</span>) resetado.</p><hr>
+                    <pre><strong>País:</strong> <span class="value">${country}</span>, <strong>Cidade:</strong> <span class="value">${city}</span>, <strong>Hora:</strong> <span class="value">${hour}</span></pre>
+                    <p><strong>Tags Ativas:</strong> [${Array.from(activeTags).join(', ')}]</p>
+                    <p><strong>Pesos:</strong></p>
                     <pre>${JSON.stringify(quotesWithWeights, null, 2)}</pre>
-                    <h2>3. Simulação da Randomização</h2>
-                    <p>A "urna" de sorteio contém <strong>${pool.length}</strong> "papeizinhos" no total.</p>
-                    <p><strong>Frase que seria sorteada nesta simulação:</strong></p>
-                    <pre>${simulatedQuote ? JSON.stringify(simulatedQuote, null, 2) : 'Nenhuma frase encontrada.'}</pre>
+                    <p><strong>Frase Sorteada (Simulação):</strong></p>
+                    <pre>${simulatedQuote ? JSON.stringify(simulatedQuote, null, 2) : 'N/A'}</pre>
                 </body>
                 </html>
             `;
@@ -108,10 +91,7 @@ export default async function handler(request, response) {
         const lastVisitTimestamp = await kv.get(ip);
         if (lastVisitTimestamp && lastVisitTimestamp > twentyFourHoursAgo) {
             const lockedImageResponse = await fetch(imageUrls.locked);
-            const lockedImageBuffer = await lockedImageResponse.arrayBuffer();
-            response.setHeader('Content-Type', 'image/png');
-            response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-            return response.status(200).end(Buffer.from(lockedImageBuffer));
+            return response.status(200).end(Buffer.from(await lockedImageResponse.arrayBuffer()));
         }
 
         // --- SORTEIO ---
@@ -129,14 +109,8 @@ export default async function handler(request, response) {
             }
             for (let i = 0; i < score; i++) { pool.push(quote); }
         });
-
-        let finalQuote = pool.length > 0
-            ? pool[Math.floor(Math.random() * pool.length)]
-            : quotes[Math.floor(Math.random() * quotes.length)];
-
-        if (!finalQuote || !finalQuote.quote || !finalQuote.source) {
-            finalQuote = quotes[0];
-        }
+        let finalQuote = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : quotes[0];
+        if (!finalQuote || !finalQuote.quote) finalQuote = quotes[0];
 
         // --- RENDERIZACAO ---
         const fontDataUri = await getFontDataUri();
@@ -159,16 +133,8 @@ export default async function handler(request, response) {
         const textSvg = `
             <svg width="450" height="250">
                 <style>
-                    @font-face {
-                        font-family: 'ZoltarFont';
-                        src: url(${fontDataUri});
-                    }
-                    text { 
-                        font-size: 34px; 
-                        font-family: 'ZoltarFont', monospace; 
-                        fill: #2c2c2c; 
-                        text-anchor: middle; 
-                    }
+                    @font-face { font-family: 'ZoltarFont'; src: url(${fontDataUri}); }
+                    text { font-size: 34px; font-family: 'ZoltarFont', monospace; fill: #2c2c2c; text-anchor: middle; }
                     .author { font-size: 26px; font-style: italic; }
                 </style>
                 <text x="50%" y="40%">${formattedText}</text>
@@ -180,13 +146,8 @@ export default async function handler(request, response) {
             .toBuffer();
             
         const finalImageBuffer = await sharp(baseImageBuffer)
-            .composite([{ 
-                input: rotatedTextBuffer,
-                top: 375,
-                left: 215
-            }])
-            .png()
-            .toBuffer();
+            .composite([{ input: rotatedTextBuffer, top: 375, left: 215 }])
+            .png().toBuffer();
         
         // --- REGISTRO ---
         await kv.set(ip, Date.now());
@@ -200,8 +161,6 @@ export default async function handler(request, response) {
         // --- ERRO ---
         console.error("ERRO DETALHADO:", error);
         const lockedImageResponse = await fetch(imageUrls.locked);
-        const lockedImageBuffer = await lockedImageResponse.arrayBuffer();
-        response.setHeader('Content-Type', 'image/png');
-        return response.status(500).end(Buffer.from(lockedImageBuffer));
+        return response.status(500).end(Buffer.from(await lockedImageResponse.arrayBuffer()));
     }
 }
