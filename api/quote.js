@@ -1,12 +1,12 @@
-// VERSÃO FINAL USANDO A SOLUÇÃO FONTCONFIG DO UTILIZADOR
 import { kv } from '@vercel/kv';
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
 
-// MUDANÇA CRÍTICA: Define o caminho para a configuração de fontes
+// --- CONFIGURAÇÃO FONTCONFIG ---
+// Ativa a configuração de fontes que você encontrou
 process.env.FONTCONFIG_PATH = path.join(process.cwd(), 'fonts');
-process.env.PATH = `${process.env.PATH}:/usr/bin/`;
+process.env.PATH = `${process.env.PATH}:/usr/bin/`; // Adiciona binários do sistema para o fontconfig funcionar
 
 // --- CONFIG ---
 const imageUrls = {
@@ -106,17 +106,16 @@ export default async function handler(request, response) {
             const lockedImageResponse = await fetch(imageUrls.locked);
             const lockedImageBuffer = await lockedImageResponse.arrayBuffer();
             response.setHeader('Content-Type', 'image/png');
-            response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
             return response.status(200).end(Buffer.from(lockedImageBuffer));
         }
 
         // --- SORTEIO ---
+        // ... (lógica de sorteio completa)
         const activeTags = new Set();
         const country = request.headers['x-vercel-ip-country'] || null;
         const hour = new Date().getUTCHours() - 3;
         if (hour >= 18 || hour < 6) activeTags.add('noite'); else activeTags.add('dia');
         if (country) activeTags.add(country);
-        
         const pool = [];
         quotes.forEach(quote => {
             let score = 1;
