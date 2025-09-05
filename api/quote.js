@@ -1,9 +1,10 @@
+// VERSÃO FINAL USANDO A SOLUÇÃO FONTCONFIG DO UTILIZADOR
 import { kv } from '@vercel/kv';
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
 
-// Fontes
+// MUDANÇA CRÍTICA: Define o caminho para a configuração de fontes
 process.env.FONTCONFIG_PATH = path.join(process.cwd(), 'fonts');
 process.env.PATH = `${process.env.PATH}:/usr/bin/`;
 
