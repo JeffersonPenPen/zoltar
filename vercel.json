@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/quote.js": {
-      "includeFiles": "fonts/**, quotes.json"
+      "includeFiles": "{fonts/**,quotes.json}"
     }
   }
 }
