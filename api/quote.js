@@ -1,40 +1,33 @@
-// VERSÃO FINAL E FUNCIONAL (PARA USAR COM A NOVA FONTE)
+// VERSÃO FINAL USANDO A SOLUÇÃO FONTCONFIG DO UTILIZADOR
 import { kv } from '@vercel/kv';
-import { quotes } from './quotes.js';
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
 
+// MUDANÇA CRÍTICA: Define o caminho para a configuração de fontes
+// Isto diz ao Sharp/Vercel onde encontrar o ficheiro fonts.conf
+process.env.FONTCONFIG_PATH = path.join(process.cwd(), 'fonts');
+process.env.PATH = `${process.env.PATH}:/usr/bin/`; // Necessário para o fontconfig no ambiente Vercel
+
+// --- CONFIG ---
 const imageUrls = {
     fortune_template: 'https://i.ibb.co/hRWtBZbS/Zoltar-Filipeta.png',
     locked: 'https://i.ibb.co/RG8sdVw2/Zoltar-5.png'
 };
 
-let cachedFontDataUri = null;
-async function getFontDataUri() {
-    if (cachedFontDataUri) return cachedFontDataUri;
-    const fontPath = path.join(__dirname, 'SpecialElite-Regular.ttf');
-    const fontBuffer = await fs.readFile(fontPath);
-    cachedFontDataUri = `data:font/ttf;base64,${fontBuffer.toString('base64')}`;
-    return cachedFontDataUri;
-}
-
+// --- HANDLER ---
 export default async function handler(request, response) {
+    // --- INICIALIZACAO ---
     const url = new URL(request.url, `http://${request.headers.host}`);
     const ip = (request.headers['x-forwarded-for'] || '127.0.0.1').split(',')[0].trim();
     const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
 
     try {
-        if (!quotes || quotes.length === 0) {
-            throw new Error('A lista de frases (quotes.js) está vazia.');
-        }
+        const quotesPath = path.join(process.cwd(), 'quotes.json');
+        const quotesJson = await fs.readFile(quotesPath, 'utf8');
+        const quotes = JSON.parse(quotesJson);
 
-        if (url.searchParams.get('reset') === 'true') {
-            await kv.del(ip);
-            // ... (A sua lógica de debug HTML pode ser colada aqui se quiser)
-            return response.status(200).send('<h1>IP Resetado</h1>');
-        }
-
+        // --- LOCK ---
         const lastVisitTimestamp = await kv.get(ip);
         if (lastVisitTimestamp && lastVisitTimestamp > twentyFourHoursAgo) {
             const lockedImageResponse = await fetch(imageUrls.locked);
@@ -44,6 +37,7 @@ export default async function handler(request, response) {
             return response.status(200).end(Buffer.from(lockedImageBuffer));
         }
 
+        // --- SORTEIO ---
         const activeTags = new Set();
         const country = request.headers['x-vercel-ip-country'] || null;
         const hour = new Date().getUTCHours() - 3;
@@ -61,7 +55,7 @@ export default async function handler(request, response) {
         let finalQuote = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : quotes[0];
         if (!finalQuote || !finalQuote.quote) finalQuote = quotes[0];
 
-        const fontDataUri = await getFontDataUri();
+        // --- RENDERIZACAO ---
         const baseImageResponse = await fetch(imageUrls.fortune_template);
         const baseImageBuffer = await baseImageResponse.arrayBuffer();
         
@@ -78,11 +72,11 @@ export default async function handler(request, response) {
         formattedText += `<tspan x="50%" dy="1.2em">${line.trim()}</tspan>`;
         formattedText += `<tspan x="50%" dy="1.8em" class="author">- ${finalQuote.source}</tspan>`;
         
+        // MUDANÇA: O SVG agora usa o nome da fonte diretamente, sem embutir.
         const textSvg = `
             <svg width="450" height="250">
                 <style>
-                    @font-face { font-family: 'ZoltarFont'; src: url(${fontDataUri}); }
-                    text { font-size: 34px; font-family: 'ZoltarFont', monospace; fill: #2c2c2c; text-anchor: middle; }
+                    text { font-size: 34px; font-family: 'Special Elite'; fill: #2c2c2c; text-anchor: middle; }
                     .author { font-size: 26px; font-style: italic; }
                 </style>
                 <text x="50%" y="40%">${formattedText}</text>
@@ -94,7 +88,11 @@ export default async function handler(request, response) {
             .toBuffer();
             
         const finalImageBuffer = await sharp(baseImageBuffer)
-            .composite([{ input: rotatedTextBuffer, top: 375, left: 215 }])
+            .composite([{ 
+                input: rotatedTextBuffer,
+                top: 375,
+                left: 215
+            }])
             .png().toBuffer();
         
         await kv.set(ip, Date.now());

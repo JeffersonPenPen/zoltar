@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/quote.js": {
-      "includeFiles": "api/quotes.json, api/SpecialElite-Regular.ttf"
+      "includeFiles": "fonts/**, quotes.json"
     }
   }
 }
