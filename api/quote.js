@@ -9,7 +9,7 @@ process.env.PATH = `${process.env.PATH}:/usr/bin/`;
 
 // --- CONFIG ---
 const imageUrls = {
-    fortune_template: 'https://i.ibb.co/KYVs03H/Filipeta-Quote.png',
+    fortune_template: 'https://i.ibb.co/KYVs03H/Filipeta-Quote.png', // O link da sua nova imagem
     locked: 'https://i.ibb.co/RG8sdVw2/Zoltar-5.png'
 };
 
@@ -17,13 +17,21 @@ const imageUrls = {
 export default async function handler(request, response) {
     // --- INICIALIZACAO ---
     const url = new URL(request.url, `http://${request.headers.host}`);
-    const ip = (request.headers['x-forwarded-for'] || '127.0.0.1').split(',')[0].trim();
+    const ip = (request.headers['x-forwarded-for'] || '127.00.1').split(',')[0].trim();
     const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
 
     try {
         const quotesPath = path.join(process.cwd(), 'quotes.json');
         const quotesJson = await fs.readFile(quotesPath, 'utf8');
         const quotes = JSON.parse(quotesJson);
+
+        // --- DEBUG ---
+        if (url.searchParams.get('reset') === 'true') {
+            await kv.del(ip);
+            // SEU HTML DE DEBUG COMPLETO VAI AQUI (APENAS PARA O RESET)
+            response.setHeader('Content-Type', 'text/html');
+            return response.status(200).send('<h1>IP Resetado.</h1>');
+        }
 
         // --- DEBUG ---
         if (url.searchParams.get('reset') === 'true') {
@@ -130,18 +138,25 @@ export default async function handler(request, response) {
         const baseImageResponse = await fetch(imageUrls.fortune_template);
         const baseImageBuffer = await baseImageResponse.arrayBuffer();
         
-        const maxCharsPerLine = 22;
+        const maxCharsPerLine = 25; // AUMENTADO PARA DAR MAIS ESPAÇO
         let line = '';
         let formattedText = '';
-        for (const word of finalQuote.quote.split(' ')) {
-            if ((line + word).length > maxCharsPerLine) {
-                formattedText += `<tspan x="50%" dy="1.2em">${line.trim()}</tspan>`;
+        const words = finalQuote.quote.split(' ');
+        
+        // Loop para formatar o texto em linhas
+        for (let i = 0; i < words.length; i++) {
+            const word = words[i];
+            if ((line + word).length > maxCharsPerLine && line !== '') {
+                formattedText += `<tspan x="50%" dy="1.1em">${line.trim()}</tspan>`; // dy ajustado para 1.1em
                 line = '';
             }
             line += `${word} `;
         }
-        formattedText += `<tspan x="50%" dy="1.2em">${line.trim()}</tspan>`;
-        formattedText += `<tspan x="50%" dy="1.8em" class="author">- ${finalQuote.source}</tspan>`;
+        // Adiciona a última linha
+        formattedText += `<tspan x="50%" dy="1.1em">${line.trim()}</tspan>`;
+        
+        // Ajusta o dy para o autor, relativo à última linha de texto
+        formattedText += `<tspan x="50%" dy="1.8em" class="author">- ${finalQuote.source}</tspan>`; 
         
         const textSvg = `
             <svg width="450" height="250">
@@ -149,8 +164,7 @@ export default async function handler(request, response) {
                     text { font-size: 34px; font-family: 'Special Elite'; fill: #2c2c2c; text-anchor: middle; }
                     .author { font-size: 26px; font-style: italic; }
                 </style>
-                <text x="50%" y="40%">${formattedText}</text>
-            </svg>
+                <text x="50%" y="35%">${formattedText}</text> </svg>
         `;
 
         const rotatedTextBuffer = await sharp(Buffer.from(textSvg))
