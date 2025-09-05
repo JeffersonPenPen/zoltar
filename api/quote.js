@@ -4,13 +4,12 @@ import path from 'path';
 import fs from 'fs/promises';
 
 // --- CONFIGURAÇÃO FONTCONFIG ---
-// Ativa a configuração de fontes que você encontrou
 process.env.FONTCONFIG_PATH = path.join(process.cwd(), 'fonts');
-process.env.PATH = `${process.env.PATH}:/usr/bin/`; // Adiciona binários do sistema para o fontconfig funcionar
+process.env.PATH = `${process.env.PATH}:/usr/bin/`;
 
 // --- CONFIG ---
 const imageUrls = {
-    fortune_template: 'https://i.ibb.co/hRWtBZbS/Zoltar-Filipeta.png',
+    fortune_template: 'https://i.ibb.co/KYVs03H/Filipeta-Quote.png',
     locked: 'https://i.ibb.co/RG8sdVw2/Zoltar-5.png'
 };
 
@@ -110,12 +109,12 @@ export default async function handler(request, response) {
         }
 
         // --- SORTEIO ---
-        // ... (lógica de sorteio completa)
         const activeTags = new Set();
         const country = request.headers['x-vercel-ip-country'] || null;
         const hour = new Date().getUTCHours() - 3;
         if (hour >= 18 || hour < 6) activeTags.add('noite'); else activeTags.add('dia');
         if (country) activeTags.add(country);
+        
         const pool = [];
         quotes.forEach(quote => {
             let score = 1;
@@ -169,7 +168,7 @@ export default async function handler(request, response) {
         await kv.set(ip, Date.now());
 
         response.setHeader('Content-Type', 'image/png');
-        response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        response.setHeader('Content-Disposition', 'attachment; filename="zoltar-fortune.png"');
         return response.status(200).end(finalImageBuffer);
 
     } catch (error) {
